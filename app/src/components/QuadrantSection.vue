@@ -149,7 +149,66 @@ function onOverlayClick(ev) {
   if (p) emit("open-drawer", p.s.id);
 }
 
-const tableRows = computed(() => [...props.list].sort((a, b) => b.capital - a.capital).slice(0, 60));
+/* ---------- table view: sort + per-column filters ----------
+   Local to this table only — narrows/reorders what's displayed here without
+   touching the chart or any other section, which stay scoped to the filter
+   row above. */
+const sortKey = ref("capital"); // 'binomial' | 'disposition' | 'turns' | 'marginPct' | 'capital'
+const sortDir = ref("desc"); // 'asc' | 'desc'
+
+function setSort(key) {
+  if (sortKey.value === key) {
+    sortDir.value = sortDir.value === "asc" ? "desc" : "asc";
+  } else {
+    sortKey.value = key;
+    sortDir.value = key === "binomial" || key === "disposition" ? "asc" : "desc";
+  }
+}
+function ariaSort(key) {
+  if (sortKey.value !== key) return "none";
+  return sortDir.value === "asc" ? "ascending" : "descending";
+}
+
+const colFilters = ref({
+  search: "",
+  disposition: "",
+  turnsMin: "", turnsMax: "",
+  marginMin: "", marginMax: "",
+  capitalMin: "", capitalMax: "",
+});
+const hasColFilters = computed(() => Object.values(colFilters.value).some((v) => v !== ""));
+function resetColFilters() {
+  colFilters.value = { search: "", disposition: "", turnsMin: "", turnsMax: "", marginMin: "", marginMax: "", capitalMin: "", capitalMax: "" };
+}
+
+const filteredTableRows = computed(() => {
+  const f = colFilters.value;
+  const q = f.search.trim().toLowerCase();
+  return props.list.filter((s) => {
+    if (q && !(s.binomial.toLowerCase().includes(q) || s.common.toLowerCase().includes(q) || s.part.toLowerCase().includes(q) || s.form.toLowerCase().includes(q))) return false;
+    if (f.disposition && s.disposition !== f.disposition) return false;
+    if (f.turnsMin !== "" && s.turns < f.turnsMin) return false;
+    if (f.turnsMax !== "" && s.turns > f.turnsMax) return false;
+    if (f.marginMin !== "" && s.marginPct * 100 < f.marginMin) return false;
+    if (f.marginMax !== "" && s.marginPct * 100 > f.marginMax) return false;
+    if (f.capitalMin !== "" && s.capital < f.capitalMin) return false;
+    if (f.capitalMax !== "" && s.capital > f.capitalMax) return false;
+    return true;
+  });
+});
+
+const sortedTableRows = computed(() => {
+  const key = sortKey.value;
+  const dir = sortDir.value === "asc" ? 1 : -1;
+  return [...filteredTableRows.value].sort((a, b) => {
+    const av = key === "binomial" || key === "disposition" ? a[key] : key === "turns" ? a.turns : key === "marginPct" ? a.marginPct : a.capital;
+    const bv = key === "binomial" || key === "disposition" ? b[key] : key === "turns" ? b.turns : key === "marginPct" ? b.marginPct : b.capital;
+    if (typeof av === "string") return av.localeCompare(bv) * dir;
+    return (av - bv) * dir;
+  });
+});
+
+const tableRows = computed(() => sortedTableRows.value.slice(0, 60));
 </script>
 
 <template>
@@ -259,19 +318,61 @@ const tableRows = computed(() => [...props.list].sort((a, b) => b.capital - a.ca
       </div>
 
       <div v-show="view === 'table'">
-        <table class="data-table">
+        <table class="data-table quadrant-table">
           <thead>
             <tr>
-              <th>SKU</th>
-              <th>Disposition</th>
-              <th class="num">Turns</th>
-              <th class="num">Margin</th>
-              <th class="num">Capital</th>
+              <th class="sortable" :aria-sort="ariaSort('binomial')" tabindex="0" @click="setSort('binomial')" @keydown.enter="setSort('binomial')">
+                SKU <span class="sort-arrow" :class="{ active: sortKey === 'binomial' }">{{ sortKey === "binomial" && sortDir === "asc" ? "▲" : "▼" }}</span>
+              </th>
+              <th class="sortable" :aria-sort="ariaSort('disposition')" tabindex="0" @click="setSort('disposition')" @keydown.enter="setSort('disposition')">
+                Disposition <span class="sort-arrow" :class="{ active: sortKey === 'disposition' }">{{ sortKey === "disposition" && sortDir === "asc" ? "▲" : "▼" }}</span>
+              </th>
+              <th class="sortable num" :aria-sort="ariaSort('turns')" tabindex="0" @click="setSort('turns')" @keydown.enter="setSort('turns')">
+                Turns <span class="sort-arrow" :class="{ active: sortKey === 'turns' }">{{ sortKey === "turns" && sortDir === "asc" ? "▲" : "▼" }}</span>
+              </th>
+              <th class="sortable num" :aria-sort="ariaSort('marginPct')" tabindex="0" @click="setSort('marginPct')" @keydown.enter="setSort('marginPct')">
+                Margin <span class="sort-arrow" :class="{ active: sortKey === 'marginPct' }">{{ sortKey === "marginPct" && sortDir === "asc" ? "▲" : "▼" }}</span>
+              </th>
+              <th class="sortable num" :aria-sort="ariaSort('capital')" tabindex="0" @click="setSort('capital')" @keydown.enter="setSort('capital')">
+                Capital <span class="sort-arrow" :class="{ active: sortKey === 'capital' }">{{ sortKey === "capital" && sortDir === "asc" ? "▲" : "▼" }}</span>
+              </th>
+            </tr>
+            <tr class="col-filter-row">
+              <th>
+                <input type="text" class="col-filter-input" placeholder="Search…" v-model="colFilters.search" @click.stop />
+              </th>
+              <th>
+                <select class="col-filter-select" v-model="colFilters.disposition" @click.stop>
+                  <option value="">All</option>
+                  <option value="expand">Expand</option>
+                  <option value="hold">Hold</option>
+                  <option value="reduce">Reduce</option>
+                  <option value="discontinue">Discontinue</option>
+                </select>
+              </th>
+              <th class="num">
+                <div class="col-filter-range">
+                  <input type="number" class="col-filter-input" placeholder="Min" v-model.number="colFilters.turnsMin" @click.stop />
+                  <input type="number" class="col-filter-input" placeholder="Max" v-model.number="colFilters.turnsMax" @click.stop />
+                </div>
+              </th>
+              <th class="num">
+                <div class="col-filter-range">
+                  <input type="number" class="col-filter-input" placeholder="Min %" v-model.number="colFilters.marginMin" @click.stop />
+                  <input type="number" class="col-filter-input" placeholder="Max %" v-model.number="colFilters.marginMax" @click.stop />
+                </div>
+              </th>
+              <th class="num">
+                <div class="col-filter-range">
+                  <input type="number" class="col-filter-input" placeholder="Min $" v-model.number="colFilters.capitalMin" @click.stop />
+                  <input type="number" class="col-filter-input" placeholder="Max $" v-model.number="colFilters.capitalMax" @click.stop />
+                </div>
+              </th>
             </tr>
           </thead>
           <tbody>
             <tr v-if="tableRows.length === 0">
-              <td colspan="5" class="empty-note">No SKUs match the current filter.</td>
+              <td colspan="5" class="empty-note">No SKUs match the current filters.</td>
             </tr>
             <tr v-for="s in tableRows" :key="s.id" class="clickable" @click="$emit('open-drawer', s.id)">
               <td><span class="binomial">{{ s.binomial }}</span><span class="common">{{ s.part }}, {{ s.form }}</span></td>
@@ -282,8 +383,12 @@ const tableRows = computed(() => [...props.list].sort((a, b) => b.capital - a.ca
             </tr>
           </tbody>
         </table>
-        <div v-if="list.length > 60" class="action-more">
-          Showing the 60 largest of {{ list.length }} SKUs by capital. Use the filters above to narrow further.
+        <div class="action-more table-note">
+          <span v-if="filteredTableRows.length > 60">
+            Showing 60 of {{ filteredTableRows.length }} matching SKUs (of {{ list.length }} in view).
+          </span>
+          <span v-else>{{ filteredTableRows.length }} of {{ list.length }} SKUs in view.</span>
+          <a v-if="hasColFilters" href="#" class="clear-col-filters" @click.prevent="resetColFilters">Clear column filters</a>
         </div>
       </div>
     </div>
