@@ -46,6 +46,19 @@ function resetFilters() {
   filters.value = { form: "", tradition: "", disposition: "" };
 }
 
+/* ---------- section tabs ----------
+   v-show (not v-if) keeps every section mounted, so switching tabs never
+   loses a section's own local state — the quadrant's chart/table toggle and
+   column sort/filters, in particular. */
+const tabs = [
+  { key: "quadrant", label: "Velocity × margin" },
+  { key: "actions", label: "Action queue" },
+  { key: "deadstock", label: "Dead stock & expiry" },
+  { key: "concentration", label: "Concentration risk" },
+  { key: "candidates", label: "Add candidates" },
+];
+const activeTab = ref(tabs[0].key);
+
 /* ---------- SKU detail drawer — R9 drill-down, R6 form comparison ---------- */
 const selectedSkuId = ref(null);
 const selectedSku = computed(() => skus.find((s) => s.id === selectedSkuId.value) || null);
@@ -92,11 +105,38 @@ onUnmounted(() => window.removeEventListener("keydown", onKeydown));
       <KpiRow :list="filteredSkus" :meta="meta" />
     </section>
 
-    <QuadrantSection :list="filteredSkus" :all-skus="skus" :meta="meta" @open-drawer="openDrawer" />
-    <ActionQueueSection :list="filteredSkus" :requests="requests" @open-drawer="openDrawer" />
-    <DeadStockSection :list="filteredSkus" @open-drawer="openDrawer" />
-    <ConcentrationSection :list="filteredSkus" @open-drawer="openDrawer" />
-    <CandidatesSection :requests="requests" :stockouts="stockouts" @open-drawer="openDrawer" />
+    <nav class="section-tabs" role="tablist" aria-label="Dashboard sections">
+      <button
+        v-for="t in tabs"
+        :key="t.key"
+        :id="'tab-' + t.key"
+        role="tab"
+        type="button"
+        :aria-selected="activeTab === t.key"
+        :aria-controls="'panel-' + t.key"
+        :tabindex="activeTab === t.key ? 0 : -1"
+        :class="{ active: activeTab === t.key }"
+        @click="activeTab = t.key"
+      >
+        {{ t.label }}
+      </button>
+    </nav>
+
+    <div v-show="activeTab === 'quadrant'" role="tabpanel" id="panel-quadrant" aria-labelledby="tab-quadrant">
+      <QuadrantSection :list="filteredSkus" :all-skus="skus" :meta="meta" @open-drawer="openDrawer" />
+    </div>
+    <div v-show="activeTab === 'actions'" role="tabpanel" id="panel-actions" aria-labelledby="tab-actions">
+      <ActionQueueSection :list="filteredSkus" :requests="requests" @open-drawer="openDrawer" />
+    </div>
+    <div v-show="activeTab === 'deadstock'" role="tabpanel" id="panel-deadstock" aria-labelledby="tab-deadstock">
+      <DeadStockSection :list="filteredSkus" @open-drawer="openDrawer" />
+    </div>
+    <div v-show="activeTab === 'concentration'" role="tabpanel" id="panel-concentration" aria-labelledby="tab-concentration">
+      <ConcentrationSection :list="filteredSkus" @open-drawer="openDrawer" />
+    </div>
+    <div v-show="activeTab === 'candidates'" role="tabpanel" id="panel-candidates" aria-labelledby="tab-candidates">
+      <CandidatesSection :requests="requests" :stockouts="stockouts" @open-drawer="openDrawer" />
+    </div>
   </div>
 
   <SkuDrawer :sku="selectedSku" :siblings="siblingSkus" @close="closeDrawer" @open-drawer="openDrawer" />

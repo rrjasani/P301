@@ -200,6 +200,42 @@ a { color: var(--leaf-green); }
   padding: var(--space-lg);
 }
 
+/* ---------- section tabs (Velocity x margin, Action queue, ...) ---------- */
+.section-tabs {
+  display: flex;
+  gap: var(--space-md);
+  border-bottom: 2px solid var(--gray-line);
+  margin: var(--space-xl) 0 var(--space-lg);
+  flex-wrap: wrap;
+}
+.section-tabs button {
+  background: transparent;
+  border: none;
+  border-bottom: 3px solid transparent;
+  margin-bottom: -2px;
+  padding: 10px 4px;
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--ink-muted);
+  cursor: pointer;
+}
+.section-tabs button:hover { color: var(--bark-brown); }
+.section-tabs button.active {
+  color: var(--bark-brown);
+  border-bottom-color: var(--moss);
+}
+.section-tabs button:focus-visible {
+  outline: 2px solid var(--moss);
+  outline-offset: 2px;
+}
+@media (max-width: 900px) {
+  .section-tabs { gap: var(--space-sm); }
+  .section-tabs button { font-size: 11.5px; padding: 8px 2px; }
+}
+
 /* ---------- KPI header row ---------- */
 .kpi-row {
   display: grid;
