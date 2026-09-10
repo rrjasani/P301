@@ -1,0 +1,291 @@
+<script setup>
+import { ref, computed, watch } from "vue";
+import { fmtMoney, fmtPct } from "../format.js";
+
+const props = defineProps({
+  list: { type: Array, required: true },
+  allSkus: { type: Array, required: true },
+  meta: { type: Object, required: true },
+});
+const emit = defineEmits(["open-drawer"]);
+
+/* Position (turns vs margin, split at the assortment median) IS the
+   disposition — corner labels carry that meaning, so dot color stays a
+   single neutral hue and is not spent re-encoding what position already
+   shows. Size = capital (sqrt scale). Protected = ring, not color, so the
+   channel stays free for the one flag that matters most on this chart. */
+const CHART_W = 720,
+  CHART_H = 480;
+const PAD = { top: 28, right: 28, bottom: 46, left: 56 };
+const plotW = CHART_W - PAD.left - PAD.right;
+const plotH = CHART_H - PAD.top - PAD.bottom;
+
+const view = ref("chart"); // 'chart' | 'table'
+
+// Scale is derived from the full catalog, not the filtered list, so a SKU's
+// position on the chart never shifts just because a filter narrowed the view.
+const xMax = computed(() => {
+  const vals = props.allSkus.map((s) => s.turns).filter((v) => isFinite(v));
+  const sorted = [...vals].sort((a, b) => a - b);
+  const p95 = sorted[Math.floor(sorted.length * 0.95)] || 1;
+  return Math.max(p95 * 1.15, props.meta.medianTurns * 2, 1);
+});
+const yRange = computed(() => {
+  const vals = props.allSkus.map((s) => s.marginPct).filter((v) => isFinite(v));
+  const min = Math.min(0, ...vals);
+  const max = Math.max(...vals, props.meta.medianMargin + 0.1);
+  return [min, max * 1.05];
+});
+const capMax = computed(() => Math.max(...props.allSkus.map((s) => s.capital), 1));
+
+function xScale(turns) {
+  return PAD.left + (Math.min(turns, xMax.value) / xMax.value) * plotW;
+}
+function yScale(m) {
+  const [yMin, yMax] = yRange.value;
+  return PAD.top + plotH - ((m - yMin) / (yMax - yMin)) * plotH;
+}
+function rScale(cap) {
+  return 3 + Math.sqrt(Math.max(cap, 0) / capMax.value) * 16;
+}
+
+const medX = computed(() => xScale(props.meta.medianTurns));
+const medY = computed(() => yScale(props.meta.medianMargin));
+
+const xStep = computed(() => (xMax.value > 8 ? 2 : 1));
+const xTicks = computed(() => {
+  const ticks = [];
+  for (let t = 0; t <= xMax.value; t += xStep.value) ticks.push(t);
+  return ticks;
+});
+const yTicks = computed(() => {
+  const [yMin, yMax] = yRange.value;
+  const step = 0.2;
+  const ticks = [];
+  for (let m = Math.ceil(yMin / step) * step; m <= yMax; m += step) ticks.push(m);
+  return ticks;
+});
+
+const corners = [
+  { x: PAD.left + plotW - 6, y: PAD.top + 14, anchor: "end", label: "Expand" },
+  { x: PAD.left + plotW - 6, y: PAD.top + plotH - 8, anchor: "end", label: "Hold" },
+  { x: PAD.left + 6, y: PAD.top + 14, anchor: "start", label: "Reduce" },
+  { x: PAD.left + 6, y: PAD.top + plotH - 8, anchor: "start", label: "Discontinue" },
+];
+
+const points = computed(() => {
+  const [yMin, yMax] = yRange.value;
+  return [...props.list]
+    .sort((a, b) => a.capital - b.capital) // bigger bets painted on top
+    .map((s) => ({
+      s,
+      cx: xScale(Math.min(s.turns, xMax.value)),
+      cy: yScale(Math.max(yMin, Math.min(s.marginPct, yMax))),
+      r: rScale(s.capital),
+    }));
+});
+
+const counts = computed(() => {
+  const c = { expand: 0, hold: 0, reduce: 0, discontinue: 0 };
+  props.list.forEach((s) => c[s.disposition]++);
+  return c;
+});
+
+/* ---------- nearest-point hover ----------
+   A single transparent overlay finds the *nearest* point to the pointer,
+   rather than per-dot hit circles — with 200+ marks in this plot, oversized
+   hit circles collide and steal each other's hover; nearest-point avoids
+   that entirely (see dataviz interaction.md, "dense scatter" guidance). */
+const svgEl = ref(null);
+const wrapEl = ref(null);
+const hovered = ref(null);
+const tooltipStyle = ref({ left: "0px", top: "0px" });
+
+// The list just changed under a stale hover — drop it rather than leave a
+// tooltip floating for a SKU the new filter may have dropped from view.
+watch(
+  () => props.list,
+  () => {
+    hovered.value = null;
+  }
+);
+
+function nearestPoint(ev) {
+  const ctm = svgEl.value.getScreenCTM();
+  if (!ctm) return null;
+  const svgX = (ev.clientX - ctm.e) / ctm.a;
+  const svgY = (ev.clientY - ctm.f) / ctm.d;
+  let best = null,
+    bestDist = Infinity;
+  for (const p of points.value) {
+    const d = Math.hypot(p.cx - svgX, p.cy - svgY);
+    if (d < bestDist) {
+      bestDist = d;
+      best = p;
+    }
+  }
+  // Threshold in SVG units so the pointer must be reasonably close, not
+  // anywhere on the plot — grows a little with the point's own radius.
+  if (best && bestDist <= best.r + 16) return best;
+  return null;
+}
+
+function onOverlayMove(ev) {
+  const p = nearestPoint(ev);
+  hovered.value = p;
+  if (p) {
+    const rect = wrapEl.value.getBoundingClientRect();
+    tooltipStyle.value = {
+      left: ev.clientX - rect.left + 14 + "px",
+      top: ev.clientY - rect.top + 14 + "px",
+    };
+  }
+}
+function onOverlayLeave() {
+  hovered.value = null;
+}
+function onOverlayClick(ev) {
+  const p = nearestPoint(ev);
+  if (p) emit("open-drawer", p.s.id);
+}
+
+const tableRows = computed(() => [...props.list].sort((a, b) => b.capital - a.capital).slice(0, 60));
+</script>
+
+<template>
+  <section class="section" id="section-quadrant">
+    <div class="section-head">
+      <div>
+        <h2>Velocity × margin</h2>
+        <div class="section-sub">Every SKU plotted by turns and margin. Click a point for full detail.</div>
+      </div>
+      <div class="view-toggle">
+        <button :class="{ active: view === 'chart' }" @click="view = 'chart'">Chart</button>
+        <button :class="{ active: view === 'table' }" @click="view = 'table'">Table</button>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="quadrant-wrap" v-show="view === 'chart'">
+        <div class="quadrant-chart-area" ref="wrapEl">
+          <svg
+            ref="svgEl"
+            class="quadrant-svg"
+            viewBox="0 0 720 480"
+            role="img"
+            aria-label="Scatter plot of every SKU positioned by inventory turns and margin percent, sized by capital tied up"
+          >
+            <line
+              v-for="t in xTicks"
+              :key="'gx' + t"
+              class="quad-gridline"
+              :x1="xScale(t)"
+              :x2="xScale(t)"
+              :y1="PAD.top"
+              :y2="PAD.top + plotH"
+            />
+            <template v-for="m in yTicks" :key="'gy' + m">
+              <line class="quad-gridline" :x1="PAD.left" :x2="PAD.left + plotW" :y1="yScale(m)" :y2="yScale(m)" />
+              <text class="quad-axis-label" :x="PAD.left - 8" :y="yScale(m) + 4" text-anchor="end">
+                {{ Math.round(m * 100) }}%
+              </text>
+            </template>
+            <text v-for="t in xTicks" :key="'tx' + t" class="quad-axis-label" :x="xScale(t)" :y="PAD.top + plotH + 18" text-anchor="middle">
+              {{ t }}x
+            </text>
+
+            <line class="quad-medianline" :x1="medX" :x2="medX" :y1="PAD.top" :y2="PAD.top + plotH" />
+            <line class="quad-medianline" :x1="PAD.left" :x2="PAD.left + plotW" :y1="medY" :y2="medY" />
+
+            <circle
+              v-for="p in points"
+              :key="p.s.id"
+              class="sku-mark"
+              :class="{ 'is-protected': p.s.protected, hovered: hovered && hovered.s.id === p.s.id }"
+              :cx="p.cx"
+              :cy="p.cy"
+              :r="p.r"
+            />
+
+            <text v-for="c in corners" :key="c.label" class="quad-label" :x="c.x" :y="c.y" :text-anchor="c.anchor">
+              {{ c.label }}
+            </text>
+
+            <text class="quad-axis-label" :x="PAD.left + plotW / 2" :y="CHART_H - 6" text-anchor="middle" style="font-weight: 700">
+              Inventory turns (trailing 6mo, annualized) →
+            </text>
+            <text
+              class="quad-axis-label"
+              :x="-(PAD.top + plotH / 2)"
+              y="16"
+              text-anchor="middle"
+              transform="rotate(-90)"
+              style="font-weight: 700"
+            >
+              Margin % ↑
+            </text>
+
+            <rect
+              class="sku-overlay"
+              :x="PAD.left"
+              :y="PAD.top"
+              :width="plotW"
+              :height="plotH"
+              fill="transparent"
+              @mousemove="onOverlayMove"
+              @mouseleave="onOverlayLeave"
+              @click="onOverlayClick"
+            />
+          </svg>
+          <div class="chart-tooltip" :class="{ visible: hovered }" :style="tooltipStyle" v-if="hovered">
+            <div class="tt-title">{{ hovered.s.binomial }}</div>
+            <div class="tt-row">{{ hovered.s.common }} — {{ hovered.s.part }}, {{ hovered.s.form }}</div>
+            <div class="tt-row">Turns {{ hovered.s.turns.toFixed(2) }}x · Margin {{ fmtPct(hovered.s.marginPct) }}</div>
+            <div class="tt-row">Capital {{ fmtMoney(hovered.s.capital) }} · {{ hovered.s.disposition }}</div>
+          </div>
+        </div>
+        <div class="quadrant-legend">
+          <h4>Reading this chart</h4>
+          <div class="legend-item"><span class="legend-swatch dot"></span> SKU (size = capital tied up)</div>
+          <div class="legend-item"><span class="legend-swatch ring"></span> Protected — clinically necessary</div>
+          <div class="legend-note">
+            Position is the disposition: the crosshair sits at the assortment's median turns and median margin.
+            Quadrant corners read <b>expand</b> (top-right), <b>hold</b> (bottom-right), <b>reduce</b> (top-left),
+            <b>discontinue</b> (bottom-left).
+          </div>
+          <div class="legend-note">
+            {{ counts.expand }} expand · {{ counts.hold }} hold · {{ counts.reduce }} reduce · {{ counts.discontinue }} discontinue in this view.
+          </div>
+        </div>
+      </div>
+
+      <div v-show="view === 'table'">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>SKU</th>
+              <th>Disposition</th>
+              <th class="num">Turns</th>
+              <th class="num">Margin</th>
+              <th class="num">Capital</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-if="tableRows.length === 0">
+              <td colspan="5" class="empty-note">No SKUs match the current filter.</td>
+            </tr>
+            <tr v-for="s in tableRows" :key="s.id" class="clickable" @click="$emit('open-drawer', s.id)">
+              <td><span class="binomial">{{ s.binomial }}</span><span class="common">{{ s.part }}, {{ s.form }}</span></td>
+              <td>{{ s.disposition }}</td>
+              <td class="num">{{ s.turns.toFixed(2) }}x</td>
+              <td class="num">{{ fmtPct(s.marginPct) }}</td>
+              <td class="num">{{ fmtMoney(s.capital) }}</td>
+            </tr>
+          </tbody>
+        </table>
+        <div v-if="list.length > 60" class="action-more">
+          Showing the 60 largest of {{ list.length }} SKUs by capital. Use the filters above to narrow further.
+        </div>
+      </div>
+    </div>
+  </section>
+</template>
