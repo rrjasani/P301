@@ -67,7 +67,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKeydown));
 
 <template>
   <nav class="app-nav">
-    <div class="brand">Rohan Jasani <span>Apothecary</span></div>
+    <div class="brand">Groundwork <span>Apothecary</span></div>
     <div class="as-of">{{ asOfLabel }}</div>
   </nav>
 
