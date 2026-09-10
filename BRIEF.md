@@ -3,7 +3,6 @@
 **Author:** Rohan Jasani
 
 > **Read `DOMAIN.md` first.** It describes the business, its people, its workflows, and its data. This brief covers only what's being built, and cites the domain by section (e.g. `DOMAIN.md §D3`).
-> **What isn't being built is recorded in `DESCOPED.md`.**
 
 ---
 
@@ -21,7 +20,7 @@
 
 ## Scope decision
 
-**Build one dashboard: Assortment Profitability.** A single, well-argued view for a single person beats three shallow tabs. Two other operational views were considered — supply & replenishment, and practitioner relationships — and are cut. See `DESCOPED.md` for both, with rationale and the pieces of each that survive into this build.
+**Build one dashboard: Assortment Profitability.** A single, well-argued view for a single person beats three shallow tabs. Two other operational views were considered — supply & replenishment, and practitioner relationships — and are cut.
 
 This also resolves cleanly against the role split in `DOMAIN.md §D3`: replenishment is Devon's job, so building it would have meant serving two users at once. Assortment strategy is unambiguously **Maya's**.
 
@@ -58,6 +57,19 @@ Every jar on the shelf is a bet: capital spent, space occupied, expiry clock run
 - **Exception-first.** Healthy, well-performing SKUs should be quiet. The screen leads with what needs changing.
 - **Honest about tradeoffs.** Dropping a slow herb may be right financially and wrong clinically — a rarely-used herb may be the only option for a specific presentation. The design should let Maya see *why* an herb is slow before she cuts it, and mark SKUs as protected.
 - **Domain-literate.** Latin binomial, plant part, and preparation form treated as first-class throughout.
+
+## Design system
+
+All visual decisions — color palette, typography, component patterns, spacing, and logo usage — are documented in `DESIGN.md`. The dashboard must be built to that system.
+
+Key constraints for this build:
+- Use the brand's gold (`#F2CE00`), leaf-green (`#6E9219`), and bark-brown (`#4E3F28`) as the primary palette.
+- Gold is a block color only; never set type in gold. Dark brown or forest text on gold passes AA contrast.
+- Rust (`#C9531F`) is reserved for the single primary CTA per view.
+- Square or barely-rounded corners throughout; no pills, drop shadows, or heavy radii.
+- Body type in Open Sans or Source Sans 3; headings in Museo Sans or Ubuntu.
+
+Refer to `DESIGN.md` for tokens, component specs, and the full do/don't list before designing any panel.
 
 ## Proposed sections
 

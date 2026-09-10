@@ -9,7 +9,8 @@
 | File | What it is |
 |---|---|
 | `DOMAIN.md` | **The business.** Its context, business model, people, workflows, and data model. Shared, and identical wherever it appears. |
-| `BRIEF-*.md` | **What's being built here.** Assignment, scope, persona, requirements, and success criteria for this repo's build. |
+| `BRIEF.md` | **What's being built here.** Assignment, scope, persona, requirements, and success criteria for this repo's build. |
+| `DESIGN.md` | **How it should look.** Brand color palette, typography, component patterns, spacing, and logo usage rules. |
 
 ## How to use them
 
